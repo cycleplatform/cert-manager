@@ -1,13 +1,25 @@
 use serde::Deserialize;
 
-
-#[derive(Deserialize, Debug)]
-pub struct ResponseEnvelope<T> {
-    data: T
+#[derive(Debug,  Deserialize)]
+pub struct DataEnvelope<T> {
+    pub data: T,
 }
 
-impl<T> ResponseEnvelope<T> {
-    pub fn into_inner(self) -> T {
-        self.data
-    }
+#[derive(Debug, Deserialize)]
+pub struct ErrorEnvelope {
+    pub error: ApiError,
+}
+
+/// The details of an error response
+#[derive(Debug, Deserialize)]
+pub struct ApiError {
+    pub details: String,
+    pub code: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ApiResult<T> {
+    Ok(DataEnvelope<T>),
+    Err(ErrorEnvelope),
 }

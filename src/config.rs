@@ -3,15 +3,15 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, Context, Result, bail};
+use anyhow::{bail, Result};
 use serde::Deserialize;
 
 use crate::Cli;
 
 #[derive(Deserialize)]
 pub struct RecordSettings {
-    zone_id: String,
-    record_id: String,
+    pub zone_id: String,
+    pub record_id: String,
 }
 
 #[derive(Deserialize)]
@@ -21,6 +21,8 @@ pub struct Config {
     pub hub_id: String,
     pub refresh_days: u64,
     pub certificate_path: String,
+    pub filename_override: Option<String>,
+    pub cluster: String,
 }
 
 impl Config {
@@ -39,14 +41,15 @@ impl Config {
             .set_default("certificate_path", "./")?
             .set_default("refresh_days", 30)?
             .set_default("hub_id", "")?
+            .set_default("cluster", "api.cycle.io")?
             .build()?;
 
         Ok(c.try_deserialize()?)
     }
 
-    /// Merge the CLI options with the config file. If there are any 
+    /// Merge the CLI options with the config file. If there are any
     /// issues, returns an error.
-    pub(crate) fn parse_args(mut self, cli: &Cli) -> Result<Self> {
+    pub(crate) fn merge_args(mut self, cli: &Cli) -> Self {
         if let Some(hub_id) = cli.hub.as_deref() {
             self.hub_id = hub_id.to_owned();
         }
@@ -55,12 +58,43 @@ impl Config {
             self.certificate_path = certificate_path.to_owned();
         }
 
+        if let Some(hub_id) = cli.hub.as_deref() {
+            self.hub_id = hub_id.to_owned();
+        }
+
+        if let Some(domain) = cli.domain.as_deref() {
+            self.domain = Some(domain.to_owned());
+        }
+
+        if let (Some(record), Some(zone)) = (cli.record.as_deref(), cli.zone.as_deref()) {
+            self.record = Some(RecordSettings {
+                zone_id: zone.to_owned(),
+                record_id: record.to_owned(),
+            })
+        }
+
+        if let Some(filename_override) = cli.filename.as_deref() {
+            self.filename_override = Some(filename_override.to_owned());
+        }
+
+        if let Some(cluster) = cli.cluster.as_deref() {
+            self.cluster = cluster.to_owned();
+        }
+
+        self
+    }
+
+    pub(crate) fn validate(self) -> Result<Self> {
         if self.domain.is_none() && self.record.is_none() {
             bail!("No hostname or DNS record provided to fetch certificate for");
         }
 
         if self.hub_id.is_empty() {
             bail!("No hub ID provided in config file or arguments.");
+        };
+
+        if self.domain.is_some() && self.record.is_some() {
+            log::warn!("Both domain and zone/record values are set. Defaulting to domain.");
         }
 
         Ok(self)

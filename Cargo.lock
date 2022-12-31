@@ -194,6 +194,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "termcolor",
 ]
 
 [[package]]

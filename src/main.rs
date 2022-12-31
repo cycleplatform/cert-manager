@@ -1,9 +1,10 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::Parser;
 use env_logger::Env;
-use std::{path::PathBuf, thread::sleep, time::Duration};
+use std::{io::Write, path::PathBuf, thread::sleep, time::Duration};
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
-use crate::config::Config;
+use crate::{api::ApiResult, config::Config};
 
 mod api;
 mod cert;
@@ -38,31 +39,53 @@ pub(crate) struct Cli {
     /// current directory.
     #[arg(short, long)]
     target: Option<String>,
+
+    /// Overrides the filename of the certificate. By default, it will be the name of the domain the cert
+    /// is applicable for.
+    #[arg(short, long)]
+    filename: Option<String>,
+
+    /// The cluster the certificate is on. By default, it is the main api.cycle.io cluster.
+    #[arg(long)]
+    cluster: Option<String>,
 }
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
+    print_welcome_message();
+
     let cli = Cli::parse();
-    let config = Config::new(cli.config.as_deref())?.parse_args(&cli)?;
+    let config = Config::new(cli.config.as_deref())?
+        .merge_args(&cli)
+        .validate()?;
 
     loop {
-        log::info!("Fetching certificate...");
+        if let Some(d) = config.domain.as_deref() {
+            log::info!("Fetching certificate for domain {}", d);
+        } else if let Some(r) = config.record.as_ref() {
+            log::info!("Fetching certificate for record {} in zone {}", r.record_id, r.zone_id);
+        }
 
-        let resp = reqwest::blocking::get("https://api-local.dev.cycle.io/v1/dns/certs")?
-            .json::<api::ResponseEnvelope<cert::CycleCert>>()
+        let resp = reqwest::blocking::get(format!("https://{}/v1/dns/certs", config.cluster))?
+            .json::<ApiResult<cert::CycleCert>>()
             .with_context(|| "Failed to fetch certificate bundle")?;
 
         log::info!("Successfully fetched certificate bundle");
 
         let duration = Duration::from_secs(config.refresh_days * 24 * 60 * 60);
-        let cert = resp.into_inner();
+
+        let cert = match resp {
+            ApiResult::Ok(r) => r.data,
+            ApiResult::Err(e) => anyhow::bail!("Failed to fetch certificate bundle: {:#?}", e),
+        };
 
         cert.write_to_disk(&config.certificate_path)
             .with_context(|| {
                 format!(
-                    "Failed to write certificate to path {}",
-                    config.certificate_path
+                    "Failed to write certificate to path {}/{}",
+                    config.certificate_path,
+                    cert.get_certificate_filename()
                 )
             })?;
 
@@ -76,4 +99,17 @@ fn main() -> Result<()> {
 
         sleep(duration)
     }
+}
+
+fn print_welcome_message() {
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
+    stdout
+        .set_color(ColorSpec::new().set_fg(Some(Color::Rgb(42, 167, 255))))
+        .unwrap();
+    writeln!(
+        &mut stdout,
+        "Cycle Certificate Manager v{}\n",
+        env!("CARGO_PKG_VERSION")
+    )
+    .unwrap();
 }
