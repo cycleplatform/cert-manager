@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-#[derive(Debug,  Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct DataEnvelope<T> {
     pub data: T,
 }
@@ -17,7 +17,7 @@ pub struct ApiError {
     pub code: String,
     pub status: u32,
     pub title: String,
-    pub source: Option<String>
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
