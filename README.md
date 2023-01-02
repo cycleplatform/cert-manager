@@ -1,5 +1,7 @@
 # Cycle Cert Bot
 
+![workflow](https://github.com/cycleplatform/cert-manager/actions/workflows/rust.yml/badge.svg?label=build)
+
 https://cycle.io
 
 A bot for fetching and keeping TLS certificates generated via Cycle's DNS
