@@ -1,6 +1,6 @@
 # Cycle Cert Bot
 
-![workflow](https://github.com/cycleplatform/cert-manager/actions/workflows/rust.yml/badge.svg?label=build)
+![workflow](https://github.com/cycleplatform/cert-manager/actions/workflows/rust.yml/badge.svg)
 
 https://cycle.io
 
