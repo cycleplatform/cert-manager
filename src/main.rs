@@ -42,7 +42,7 @@ pub(crate) struct Cli {
     #[arg(short, long)]
     api_key: Option<String>,
 
-    // The number of days before the expiration to refresh this certificate. Must be a positive number.
+    /// The number of days before the expiration to refresh this certificate. Must be a positive number.
     #[arg(short, long, default_value = "14")]
     refresh_days: Option<u64>,
 }
@@ -51,7 +51,6 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .format_timestamp_secs()
         .init();
-
 
     print_welcome_message();
 
@@ -100,10 +99,7 @@ fn main() -> Result<()> {
             cert.get_certificate_filename(filename_override)
         );
 
-        log::info!(
-            "Next fetch in {} days",
-            duration.num_days()
-        );
+        log::info!("Next fetch in {} days", duration.num_days());
 
         sleep(
             duration
