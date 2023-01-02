@@ -4,10 +4,7 @@ use env_logger::Env;
 use std::{io::Write, path::PathBuf, thread::sleep, time::Duration};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
-use crate::{
-    cert::{CertificateFetcher, CertificateManager},
-    config::Config,
-};
+use crate::{cert::CertificateManager, config::Config};
 
 mod api;
 mod cert;
@@ -67,8 +64,8 @@ fn main() -> Result<()> {
 
         if let Err(err) = res {
             log::error!("Failed to fetch certificate: {:?}", err);
-            log::info!("Retrying in 15 seconds...");
-            sleep(Duration::from_secs(15));
+            log::info!("Retrying in 3 hours...");
+            sleep(Duration::from_secs(3 * 60 * 60));
             continue;
         }
 
@@ -87,16 +84,14 @@ fn main() -> Result<()> {
         cert.write_to_disk(&config.certificate_path, filename_override)
             .with_context(|| {
                 format!(
-                    "Failed to write certificate to path {}/{}",
-                    config.certificate_path,
-                    cert.get_certificate_filename(filename_override)
+                    "Failed to write certificate to path {}",
+                    cert.get_certificate_full_filepath(&config.certificate_path, filename_override)
                 )
             })?;
 
         log::info!(
-            "Wrote certificate bundle to {}/{}",
-            config.certificate_path,
-            cert.get_certificate_filename(filename_override)
+            "Wrote certificate bundle to {}",
+            cert.get_certificate_full_filepath(&config.certificate_path, filename_override)
         );
 
         log::info!("Next fetch in {} days", duration.num_days());

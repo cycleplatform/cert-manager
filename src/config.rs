@@ -83,3 +83,45 @@ impl Config {
         Ok(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn test_merged_config() -> Result<()> {
+        let mut cfg = Config::new(None)?;
+        let cli = crate::Cli::parse_from([
+            "cycle-certs",
+            "--domain=cycle.io",
+            "--api-key=123",
+            "--target=./certs",
+            "--filename=certs",
+            "--cluster=api.dev.cycle.io",
+        ]);
+        cfg = cfg.merge_args(&cli);
+
+        assert_eq!(cfg.apikey, "123");
+        assert_eq!(cfg.domain, "cycle.io");
+        assert_eq!(cfg.certificate_path, "./certs");
+        assert_eq!(cfg.filename_override, Some("certs".into()));
+        assert_eq!(cfg.cluster, "api.dev.cycle.io");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_config_validation() -> Result<()> {
+        let cfg = Config::new(None)?;
+        let cli = crate::Cli::parse_from([""]);
+
+        assert!(
+            cfg.merge_args(&cli).validate().is_err(),
+            "Config should fail to validate if apikey or domain aren't set."
+        );
+
+        Ok(())
+    }
+}

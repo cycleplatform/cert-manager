@@ -3,7 +3,7 @@ use std::{
     io::{self, Write},
 };
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 
@@ -11,10 +11,6 @@ use crate::api::ApiResult;
 
 /// The number of days from generation that a certificate expires.
 const EXPIRATION_DAYS: i64 = 90;
-
-pub(crate) trait CertificateFetcher {
-    fn fetch_certificate(&self) -> anyhow::Result<CycleCert>;
-}
 
 pub(crate) struct CertificateManager<'a> {
     config: &'a super::config::Config,
@@ -24,10 +20,8 @@ impl<'a> CertificateManager<'a> {
     pub fn new(config: &'a super::config::Config) -> Self {
         Self { config }
     }
-}
 
-impl<'a> CertificateFetcher for CertificateManager<'a> {
-    fn fetch_certificate(&self) -> anyhow::Result<CycleCert> {
+    pub fn fetch_certificate(&self) -> anyhow::Result<CycleCert> {
         let response = reqwest::blocking::Client::new()
             .get(format!(
                 "https://{}/v1/dns/certificates",
@@ -37,7 +31,8 @@ impl<'a> CertificateFetcher for CertificateManager<'a> {
             .query(&[("domain", self.config.domain.as_str())])
             .send()?;
 
-        let cert = response.json::<ApiResult<CycleCert>>()
+        let cert = response
+            .json::<ApiResult<CycleCert>>()
             .with_context(|| "Failed parsing response from Cycle API.")?;
 
         match cert {
@@ -62,22 +57,114 @@ pub(crate) struct CycleCert {
 impl CycleCert {
     pub(crate) fn write_to_disk(&self, path: &str, filename: Option<&str>) -> io::Result<()> {
         create_dir_all(path)?;
-        let mut output = File::create(format!("{}/{}", path, self.get_certificate_filename(filename)))?;
+        let mut output = File::create(self.get_certificate_full_filepath(path, filename))?;
         output.write_all(self.bundle.as_bytes())
     }
 
-    pub(crate) fn get_certificate_filename(&self, filename: Option<&str>) -> String {
+    pub(crate) fn get_certificate_full_filepath(
+        &self,
+        path: &str,
+        filename: Option<&str>,
+    ) -> String {
         let name = if let Some(n) = filename {
             n.to_owned()
         } else {
-            self.domains.join("_")
+            self.domains.join("_").replace('.', "_")
         };
-        format!("{}.ca-bundle", name)
+        format!("{}/{}.ca-bundle", path, name)
     }
 
     pub(crate) fn duration_until_refetch(&self, refetch_days: i64) -> Duration {
         let date = (self.events.generated + Duration::days(EXPIRATION_DAYS))
             - Duration::days(refetch_days);
-        Utc::now() - date
+        date - Utc::now()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Datelike, NaiveDate, Timelike};
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn test_writing_bundle() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+
+        let content = String::from("CONTENTS OF CERTIFICATE HERE");
+
+        let cert = CycleCert {
+            domains: vec!["cycle.io".to_string()],
+            bundle: content.clone(),
+            events: Events {
+                generated: Utc::now(),
+            },
+        };
+
+        cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
+
+        let cert_file_content = std::fs::read_to_string(dir.path().join("cycle_io.ca-bundle"))?;
+        assert_eq!(content, cert_file_content);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_writing_bundle_multiple_domains() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+
+        let content = String::from("CONTENTS OF CERTIFICATE HERE");
+
+        let cert = CycleCert {
+            domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
+            bundle: content.clone(),
+            events: Events {
+                generated: Utc::now(),
+            },
+        };
+
+        cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
+
+        let cert_file_content =
+            std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.ca-bundle"))?;
+        assert_eq!(content, cert_file_content);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_calculate_expiration_time() -> anyhow::Result<()> {
+        let generated_prior_days = 2;
+        let days_before_refresh = 14;
+        let now = Utc::now();
+        let start_of_day = NaiveDate::from_ymd_opt(now.year(), now.month(), now.day())
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+
+        let cert = CycleCert {
+            domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
+            bundle: String::from("CONTENTS OF CERTIFICATE HERE"),
+            events: Events {
+                generated: DateTime::<Utc>::from_utc(start_of_day, Utc)
+                    - Duration::days(generated_prior_days),
+            },
+        };
+
+        let dur_from_now = cert.duration_until_refetch(days_before_refresh);
+
+        let should_be_num_days = EXPIRATION_DAYS - days_before_refresh - generated_prior_days;
+        assert_eq!(
+            dur_from_now.num_days(),
+            if now.hour() > 0 {
+                // not a whole day if we're not at exactly midnight
+                should_be_num_days - 1
+            } else {
+                should_be_num_days
+            }
+        );
+
+        Ok(())
     }
 }

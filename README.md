@@ -39,9 +39,14 @@ To run straight from the command line, run
 
 `cycle-certs --domain=<YOUR DOMAIN> --api-key=<API KEY>`
 
-This will download the certificate bundle and install it in the current working directory with the name `<YOUR DOMAIN>.ca-bundle`. The process will sleep in the background, until 14 days before the certificate expires, when it will attempt to fetch the latest certificate again. (Cycle renews certificates 65 days after generation).
+This will download the certificate bundle and install it in the current working directory with the name `<YOUR DOMAIN>.ca-bundle`. 
 
-If the bot fails to fetch the certificate for any reason, it will wait 15 seconds and make the request again, indefinitely. Verify that your setup is correct before running this process in the background.
+_Note - If your certificate applies to multiple domains, they will be separated by an underscore. All periods are also replaced with underscores. Therefore, if your domain were e.g. cycle.io, the bundle would be saved to a file `cycle_io.ca-bundle`. If your domains were `cycle.io` and `test.com`, the bundle would be saved to `cycle_io_test_com.ca-bundle`_
+
+The process will sleep in the background, until 14 days before the certificate expires, when it will attempt to fetch the latest certificate again. (Cycle renews certificates 65 days after generation).
+
+If the bot fails to fetch the certificate for any reason, it will wait 3 hours and make the request again, indefinitely. Verify that your setup is correct before running this process in the background.
+
 
 ## Configuration
 
@@ -66,5 +71,5 @@ While all configuration options can be set via command line, it may be preferrab
 ```toml
 domain = "myapp.mysite.com"
 refresh_days = 5
-api_key = "<YOUR API KEY>"
+apikey = "<YOUR API KEY>"
 ```
