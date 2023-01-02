@@ -4,7 +4,10 @@ use env_logger::Env;
 use std::{io::Write, path::PathBuf, thread::sleep, time::Duration};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
-use crate::{api::ApiResult, config::Config};
+use crate::{
+    cert::{CertificateFetcher, CertificateManager},
+    config::Config,
+};
 
 mod api;
 mod cert;
@@ -17,23 +20,9 @@ pub(crate) struct Cli {
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
 
-    /// The hostname of the record you wish to fetch. If zone and record are set,
-    /// they take priority.
+    /// The hostname of the desired certificate.
     #[arg(short, long)]
     domain: Option<String>,
-
-    /// The ID of the zone on Cycle containing the record for the certificate you wish to monitor. Takes priority over domain.
-    #[arg(short, long)]
-    zone: Option<String>,
-
-    /// The ID of the record on Cycle for the certificate you wish to monitor. Takes priority over domain.
-    #[arg(short, long)]
-    record: Option<String>,
-
-    /// The ID of the hub containing the certificate you wish to monitor. If one is not provided here, it
-    /// must be provided in the config file.
-    #[arg(long)]
-    hub: Option<String>,
 
     /// The path to write the fetched certificate bundle to. If none is selected, it will be written to the
     /// current directory.
@@ -48,10 +37,21 @@ pub(crate) struct Cli {
     /// The cluster the certificate is on. By default, it is the main api.cycle.io cluster.
     #[arg(long)]
     cluster: Option<String>,
+
+    /// Your Cycle API Key. For more information, see https://docs.cycle.io/docs/hubs/API-access/api-key-generate
+    #[arg(short, long)]
+    api_key: Option<String>,
+
+    // The number of days before the expiration to refresh this certificate. Must be a positive number.
+    #[arg(short, long, default_value = "14")]
+    refresh_days: Option<u64>,
 }
 
 fn main() -> Result<()> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+        .format_timestamp_secs()
+        .init();
+
 
     print_welcome_message();
 
@@ -61,43 +61,55 @@ fn main() -> Result<()> {
         .validate()?;
 
     loop {
-        if let Some(d) = config.domain.as_deref() {
-            log::info!("Fetching certificate for domain {}", d);
-        } else if let Some(r) = config.record.as_ref() {
-            log::info!("Fetching certificate for record {} in zone {}", r.record_id, r.zone_id);
+        log::info!("Fetching certificate for domain {}", config.domain);
+
+        let cm = CertificateManager::new(&config);
+        let res = cm.fetch_certificate();
+
+        if let Err(err) = res {
+            log::error!("Failed to fetch certificate: {:?}", err);
+            log::info!("Retrying in 15 seconds...");
+            sleep(Duration::from_secs(15));
+            continue;
         }
 
-        let resp = reqwest::blocking::get(format!("https://{}/v1/dns/certs", config.cluster))?
-            .json::<ApiResult<cert::CycleCert>>()
-            .with_context(|| "Failed to fetch certificate bundle")?;
+        log::info!("Successfully fetched certificate bundle.");
 
-        log::info!("Successfully fetched certificate bundle");
+        let cert = res.unwrap();
+        let duration = cert.duration_until_refetch(
+            config
+                .refresh_days
+                .try_into()
+                .with_context(|| "Failed to convert refresh days into i64")?,
+        );
 
-        let duration = Duration::from_secs(config.refresh_days * 24 * 60 * 60);
+        let filename_override = config.filename_override.as_deref();
 
-        let cert = match resp {
-            ApiResult::Ok(r) => r.data,
-            ApiResult::Err(e) => anyhow::bail!("Failed to fetch certificate bundle: {:#?}", e),
-        };
-
-        cert.write_to_disk(&config.certificate_path)
+        cert.write_to_disk(&config.certificate_path, filename_override)
             .with_context(|| {
                 format!(
                     "Failed to write certificate to path {}/{}",
                     config.certificate_path,
-                    cert.get_certificate_filename()
+                    cert.get_certificate_filename(filename_override)
                 )
             })?;
 
         log::info!(
             "Wrote certificate bundle to {}/{}",
             config.certificate_path,
-            cert.get_certificate_filename()
+            cert.get_certificate_filename(filename_override)
         );
 
-        log::info!("Next fetch in {} days", duration.as_secs() / 60 / 60 / 24);
+        log::info!(
+            "Next fetch in {} days",
+            duration.num_days()
+        );
 
-        sleep(duration)
+        sleep(
+            duration
+                .to_std()
+                .with_context(|| "Failed attempting to sleep.")?,
+        )
     }
 }
 
@@ -108,8 +120,11 @@ fn print_welcome_message() {
         .unwrap();
     writeln!(
         &mut stdout,
-        "Cycle Certificate Manager v{}\n",
+        "Cycle Certificate Manager v{}",
         env!("CARGO_PKG_VERSION")
     )
     .unwrap();
+
+    stdout.reset().unwrap();
+    writeln!(&mut stdout).unwrap();
 }

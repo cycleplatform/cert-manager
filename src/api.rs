@@ -13,8 +13,11 @@ pub struct ErrorEnvelope {
 /// The details of an error response
 #[derive(Debug, Deserialize)]
 pub struct ApiError {
-    pub details: String,
-    pub code: usize,
+    pub detail: String,
+    pub code: String,
+    pub status: u32,
+    pub title: String,
+    pub source: Option<String>
 }
 
 #[derive(Debug, Deserialize)]
