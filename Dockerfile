@@ -6,11 +6,13 @@ RUN apk add --no-cache musl-dev  openssl-dev openssl-libs-static pkgconf git
 # https://github.com/rust-lang/pkg-config-rs/blob/54325785816695df031cef3b26b6a9a203bbc01b/src/lib.rs#L613
 ENV SYSROOT=/dummy
 
-WORKDIR /wd
-COPY . /wd
+WORKDIR /cycle
+COPY . .
 RUN cargo build --bins --release
 
 FROM scratch
+VOLUME ["/certs"]
+ENV RUST_LOG=trace
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=builder /wd/target/release/cycle-certs /
-CMD ["./cycle-certs"]
+COPY --from=builder /cycle/target/release/cycle-certs /
+ENTRYPOINT ["./cycle-certs", "--path=/certs"]

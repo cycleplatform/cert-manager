@@ -19,7 +19,12 @@ If you're using cargo:
 
 ### Download
 
-Go to the releases section and download the binary for your system. Then copy it into a folder in your path.
+Go to the releases section and download the binary for your system, then copy it into a folder in your path.
+If your system is not listed, try compiling with 
+
+### Docker
+
+`docker run -ti --name cycle-certs -v $(pwd):/certs cycleplatform/cycle-certs`
 
 ### From Source
 
