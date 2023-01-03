@@ -46,6 +46,10 @@ pub(crate) struct Cli {
     /// The hub ID the DNS record is associated with.
     #[arg(long)]
     hub: Option<String>,
+
+    /// Whether to check for a wildcard certificate that matches the domain.
+    #[arg(short, long)]
+    wildcard: bool,
 }
 
 fn main() -> Result<()> {

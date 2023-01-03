@@ -17,6 +17,7 @@ pub struct Config {
     pub cluster: String,
     pub apikey: String,
     pub hub: String,
+    pub wildcard: bool,
 }
 
 impl Config {
@@ -39,6 +40,7 @@ impl Config {
             .set_default("domain", "")?
             .set_default("apikey", "")?
             .set_default("hub", "")?
+            .set_default("wildcard", false)?
             .build()?;
 
         Ok(c.try_deserialize()?)
@@ -73,6 +75,8 @@ impl Config {
         if let Some(hub) = cli.hub.as_deref() {
             self.hub = hub.to_owned();
         }
+
+        self.wildcard = cli.wildcard;
 
         self
     }
@@ -110,6 +114,7 @@ mod tests {
             "--path=./certs",
             "--filename=certs",
             "--cluster=api.dev.cycle.io",
+            "--wildcard",
             "--hub=myhub",
         ]);
         cfg = cfg.merge_args(&cli);
@@ -120,13 +125,15 @@ mod tests {
         assert_eq!(cfg.filename, Some("certs".into()));
         assert_eq!(cfg.cluster, "api.dev.cycle.io");
         assert_eq!(cfg.hub, "myhub");
+        assert!(cfg.wildcard);
 
         Ok(())
     }
 
     #[test]
     fn test_config_validation() -> Result<()> {
-        let cfg = Config::new(None)?;
+        // use fakepath in case there's a config default in the directory.
+        let cfg = Config::new(Some(Path::new("fakepath")))?;
         let cli = crate::Cli::parse_from([""]);
 
         assert!(

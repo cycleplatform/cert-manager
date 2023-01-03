@@ -24,7 +24,14 @@ If your system is not listed, try compiling with
 
 ### Docker
 
-`docker run -ti --name cycle-certs -v $(pwd):/certs cycleplatform/cycle-certs`
+The following command will run the process in the background. Remove the `-d`
+argument to see the output first and verify that it works as expected.
+
+`docker run -dit --name cycle-certs -v $(pwd):/certs cycleplatform/cycle-certs`
+
+By default, the process will look for the config file in the mounted volume
+(`/certs/config.toml` inside the container). You can provide your own location
+by passing the `--config=<FILENAME>` option instead.
 
 ### From Source
 

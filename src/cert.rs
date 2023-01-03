@@ -22,9 +22,15 @@ impl<'a> CertificateManager<'a> {
     }
 
     pub fn fetch_certificate(&self) -> anyhow::Result<CycleCert> {
+        let mut query = vec![("domain", self.config.domain.as_str())];
+
+        if self.config.wildcard {
+            query.push(("wildcard", "true"));
+        }
+
         let response = reqwest::blocking::Client::new()
             .get(format!(
-                "https://{}/v1/dns/tls/certificates",
+                "https://{}/v1/dns/tls/certificates/lookup",
                 self.config.cluster
             ))
             .header(
@@ -32,7 +38,7 @@ impl<'a> CertificateManager<'a> {
                 format!("Bearer {}", self.config.apikey.as_str()),
             )
             .header("X-HUB-ID", self.config.hub.as_str())
-            .query(&[("domain", self.config.domain.as_str())])
+            .query(&query[..])
             .send()?;
 
         let cert = response

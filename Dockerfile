@@ -1,5 +1,5 @@
 FROM docker.io/library/rust:1.66-alpine as builder
-RUN apk add --no-cache musl-dev  openssl-dev openssl-libs-static pkgconf git
+RUN apk add --no-cache musl-dev pkgconf git
 
 # Set `SYSROOT` to a dummy path (default is /usr) because pkg-config-rs *always*
 # links those located in that path dynamically but we want static linking, c.f.
@@ -13,6 +13,5 @@ RUN cargo build --bins --release
 FROM scratch
 VOLUME ["/certs"]
 ENV RUST_LOG=trace
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /cycle/target/release/cycle-certs /
-ENTRYPOINT ["./cycle-certs", "--path=/certs"]
+ENTRYPOINT ["./cycle-certs", "--path=/certs", "--config=/certs/config"]
