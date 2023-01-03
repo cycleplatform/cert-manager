@@ -110,7 +110,7 @@ mod tests {
             "--path=./certs",
             "--filename=certs",
             "--cluster=api.dev.cycle.io",
-            "--hub=myhub"
+            "--hub=myhub",
         ]);
         cfg = cfg.merge_args(&cli);
 
@@ -120,7 +120,6 @@ mod tests {
         assert_eq!(cfg.filename, Some("certs".into()));
         assert_eq!(cfg.cluster, "api.dev.cycle.io");
         assert_eq!(cfg.hub, "myhub");
-
 
         Ok(())
     }
