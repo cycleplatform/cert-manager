@@ -24,10 +24,14 @@ impl<'a> CertificateManager<'a> {
     pub fn fetch_certificate(&self) -> anyhow::Result<CycleCert> {
         let response = reqwest::blocking::Client::new()
             .get(format!(
-                "https://{}/v1/dns/certificates",
+                "https://{}/v1/dns/tls/certificates",
                 self.config.cluster
             ))
-            .header("X-API-KEY", self.config.apikey.as_str())
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.apikey.as_str()),
+            )
+            .header("X-HUB-ID", self.config.hub.as_str())
             .query(&[("domain", self.config.domain.as_str())])
             .send()?;
 
@@ -37,7 +41,11 @@ impl<'a> CertificateManager<'a> {
 
         match cert {
             ApiResult::Ok(c) => Ok(c.data),
-            ApiResult::Err(err) => bail!(format!("{} - {}", err.error.title, err.error.detail)),
+            ApiResult::Err(err) => bail!(format!(
+                "{}...{}",
+                err.error.title,
+                err.error.detail.unwrap_or_default()
+            )),
         }
     }
 }

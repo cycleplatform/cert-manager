@@ -39,7 +39,7 @@ Then copy the bin to a location in your path.
 
 To run straight from the command line, run 
 
-`cycle-certs --domain=<YOUR DOMAIN> --api-key=<API KEY>`
+`cycle-certs --domain=<YOUR DOMAIN> --apikey=<API KEY>`
 
 This will download the certificate bundle and install it in the current working directory with the name `<YOUR DOMAIN>.ca-bundle`. 
 
@@ -56,14 +56,15 @@ While all configuration options can be set via command line, it may be preferrab
 
 ### Options
 
-| Option | Description |
-| ------ | ----------- |
-| domain | The hostname of the desired certificate |
-| refresh_days | The number of days before the expiration to refresh this certificate. Must be a positive number. |
-| certificate_path | The path to write the fetched certificate bundle to. If none is selected, it will be written to the current directory. |
-| filename_override | Overrides the filename of the certificate. By default, it will be the name of the domain the cert is applicable for |
-| cluster | The cluster the certificate is on. By default, it is the main api.cycle.io cluster |
-| apikey | Your Cycle API Key. For more information, see https://docs.cycle.io/docs/hubs/API-access/api-key-generate |
+| Option | Required | Description |
+| ------ | -------- | ----------- |
+| domain | true | The hostname of the desired certificate |
+| apikey | true |Your Cycle API Key. For more information, see https://docs.cycle.io/docs/hubs/API-access/api-key-generate |
+| hub | true |The ID of the hub the desired certificate belongs to |
+| refresh_days | false| The number of days before the expiration to refresh this certificate. Must be a positive number. |
+| certificate_path | false | The path to write the fetched certificate bundle to. If none is selected, it will be written to the current directory. |
+| filename | false | Overrides the filename of the certificate. By default, it will be the name of the domain the cert is applicable for |
+| cluster | false | The cluster the certificate is on. By default, it is the main api.cycle.io cluster |
 
 
 ### Example

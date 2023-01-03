@@ -2,6 +2,11 @@
 name = "cycle-certs"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+authors = ["Petrichor, Inc."]
+description = "A bot for fetching and keeping TLS certificates generated via Cycle's DNS service up to date."
+homepage = "https://cycle.io/"
+repository = "https://github.com/cycleplatform/cycle-certs/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

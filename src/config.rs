@@ -13,9 +13,10 @@ pub struct Config {
     pub domain: String,
     pub refresh_days: u64,
     pub certificate_path: String,
-    pub filename_override: Option<String>,
+    pub filename: Option<String>,
     pub cluster: String,
     pub apikey: String,
+    pub hub: String,
 }
 
 impl Config {
@@ -37,6 +38,7 @@ impl Config {
             // Allow the user to pass these items via CLI params. We validate later.
             .set_default("domain", "")?
             .set_default("apikey", "")?
+            .set_default("hub", "")?
             .build()?;
 
         Ok(c.try_deserialize()?)
@@ -44,7 +46,7 @@ impl Config {
 
     /// Merge the CLI options with the config file.
     pub(crate) fn merge_args(mut self, cli: &Cli) -> Self {
-        if let Some(certificate_path) = cli.target.as_deref() {
+        if let Some(certificate_path) = cli.path.as_deref() {
             self.certificate_path = certificate_path.to_owned();
         }
 
@@ -57,15 +59,19 @@ impl Config {
         }
 
         if let Some(filename_override) = cli.filename.as_deref() {
-            self.filename_override = Some(filename_override.to_owned());
+            self.filename = Some(filename_override.to_owned());
         }
 
         if let Some(cluster) = cli.cluster.as_deref() {
             self.cluster = cluster.to_owned();
         }
 
-        if let Some(key) = cli.api_key.as_deref() {
+        if let Some(key) = cli.apikey.as_deref() {
             self.apikey = key.to_owned();
+        }
+
+        if let Some(hub) = cli.hub.as_deref() {
+            self.hub = hub.to_owned();
         }
 
         self
@@ -78,6 +84,10 @@ impl Config {
 
         if self.apikey.is_empty() {
             bail!("Missing API key - An API key must be provided.")
+        }
+
+        if self.hub.is_empty() {
+            bail!("Missing hub ID - A hub ID must be provided.")
         }
 
         Ok(self)
@@ -96,18 +106,21 @@ mod tests {
         let cli = crate::Cli::parse_from([
             "cycle-certs",
             "--domain=cycle.io",
-            "--api-key=123",
-            "--target=./certs",
+            "--apikey=123",
+            "--path=./certs",
             "--filename=certs",
             "--cluster=api.dev.cycle.io",
+            "--hub=myhub"
         ]);
         cfg = cfg.merge_args(&cli);
 
         assert_eq!(cfg.apikey, "123");
         assert_eq!(cfg.domain, "cycle.io");
         assert_eq!(cfg.certificate_path, "./certs");
-        assert_eq!(cfg.filename_override, Some("certs".into()));
+        assert_eq!(cfg.filename, Some("certs".into()));
         assert_eq!(cfg.cluster, "api.dev.cycle.io");
+        assert_eq!(cfg.hub, "myhub");
+
 
         Ok(())
     }
@@ -119,7 +132,7 @@ mod tests {
 
         assert!(
             cfg.merge_args(&cli).validate().is_err(),
-            "Config should fail to validate if apikey or domain aren't set."
+            "Config should fail to validate if apikey, domain, or hub aren't set."
         );
 
         Ok(())

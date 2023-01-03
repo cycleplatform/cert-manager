@@ -11,7 +11,7 @@ mod cert;
 mod config;
 
 #[derive(Parser)]
-#[command(author = "Petrichor, Inc.", version, about, long_about = None)]
+#[command(author, about, long_about = None)]
 pub(crate) struct Cli {
     /// Sets a custom config file
     #[arg(short, long, value_name = "FILE")]
@@ -24,7 +24,7 @@ pub(crate) struct Cli {
     /// The path to write the fetched certificate bundle to. If none is selected, it will be written to the
     /// current directory.
     #[arg(short, long)]
-    target: Option<String>,
+    path: Option<String>,
 
     /// Overrides the filename of the certificate. By default, it will be the name of the domain the cert
     /// is applicable for.
@@ -37,11 +37,15 @@ pub(crate) struct Cli {
 
     /// Your Cycle API Key. For more information, see https://docs.cycle.io/docs/hubs/API-access/api-key-generate
     #[arg(short, long)]
-    api_key: Option<String>,
+    apikey: Option<String>,
 
     /// The number of days before the expiration to refresh this certificate. Must be a positive number.
     #[arg(short, long, default_value = "14")]
     refresh_days: Option<u64>,
+
+    /// The hub ID the DNS record is associated with.
+    #[arg(long)]
+    hub: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -79,7 +83,7 @@ fn main() -> Result<()> {
                 .with_context(|| "Failed to convert refresh days into i64")?,
         );
 
-        let filename_override = config.filename_override.as_deref();
+        let filename_override = config.filename.as_deref();
 
         cert.write_to_disk(&config.certificate_path, filename_override)
             .with_context(|| {
