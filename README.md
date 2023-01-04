@@ -1,7 +1,7 @@
 # Cycle Cert Bot
 
 ![](https://github.com/cycleplatform/cert-manager/actions/workflows/rust.yml/badge.svg)
-![](https://img.shields.io/crates/v/cycle-certs?style=for-the-badge)
+![](https://img.shields.io/crates/v/cycle-certs)
 
 https://cycle.io
 
