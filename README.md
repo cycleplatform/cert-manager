@@ -51,7 +51,7 @@ Then copy the bin to a location in your path.
 
 To run straight from the command line, run 
 
-`cycle-certs --domain=<YOUR DOMAIN> --apikey=<API KEY>`
+`cycle-certs --domain=<YOUR DOMAIN> --apikey=<API KEY> --hub=<HUB ID>`
 
 This will download the certificate bundle and install it in the current working directory with the name `<YOUR DOMAIN>.ca-bundle`. 
 
