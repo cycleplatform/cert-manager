@@ -12,6 +12,5 @@ RUN cargo build --bins --release
 
 FROM scratch
 VOLUME ["/certs"]
-ENV RUST_LOG=trace
 COPY --from=builder /cycle/target/release/cycle-certs /
 ENTRYPOINT ["./cycle-certs", "--path=/certs", "--config=/certs/config"]
