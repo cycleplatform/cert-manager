@@ -2,3 +2,4 @@
 /target-cross
 config.toml
 *.ca-bundle
+*.key

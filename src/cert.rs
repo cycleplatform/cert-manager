@@ -66,13 +66,18 @@ pub(crate) struct CycleCert {
     domains: Vec<String>,
     bundle: String,
     events: Events,
+    private_key: String
 }
 
 impl CycleCert {
     pub(crate) fn write_to_disk(&self, path: &str, filename: Option<&str>) -> io::Result<()> {
         create_dir_all(path)?;
-        let mut output = File::create(self.get_certificate_full_filepath(path, filename))?;
-        output.write_all(self.bundle.as_bytes())
+        let mut file = File::create(self.get_certificate_full_filepath(path, filename))?;
+        file.write_all(self.bundle.as_bytes())?;
+
+        // Reuse the file var for writing the key
+        file = File::create(self.get_private_key_full_filepath(path, filename))?;
+        file.write_all(self.private_key.as_bytes())
     }
 
     pub(crate) fn get_certificate_full_filepath(
@@ -86,6 +91,19 @@ impl CycleCert {
             self.domains.join("_").replace('.', "_")
         };
         format!("{}/{}.ca-bundle", path, name)
+    }
+
+    pub(crate) fn get_private_key_full_filepath(
+        &self,
+        path: &str,
+        filename: Option<&str>,
+    ) -> String {
+        let name = if let Some(n) = filename {
+            n.to_owned()
+        } else {
+            self.domains.join("_").replace('.', "_")
+        };
+        format!("{}/{}.key", path, name)
     }
 
     pub(crate) fn duration_until_refetch(&self, refetch_days: i64) -> Duration {
@@ -111,6 +129,7 @@ mod tests {
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string()],
             bundle: content.clone(),
+            private_key: "Key to the castle".into(),
             events: Events {
                 generated: Utc::now(),
             },
@@ -133,6 +152,7 @@ mod tests {
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
             bundle: content.clone(),
+            private_key: "Key to the castle".into(),
             events: Events {
                 generated: Utc::now(),
             },
@@ -160,6 +180,7 @@ mod tests {
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
             bundle: String::from("CONTENTS OF CERTIFICATE HERE"),
+            private_key: "Key to the castle".into(),
             events: Events {
                 generated: DateTime::<Utc>::from_utc(start_of_day, Utc)
                     - Duration::days(generated_prior_days),

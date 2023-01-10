@@ -33,7 +33,7 @@ impl Config {
                 )
                 .required(false),
             )
-            .set_default("certificate_path", "./")?
+            .set_default("certificate_path", ".")?
             .set_default("refresh_days", 14)?
             .set_default("cluster", "api.cycle.io")?
             // Allow the user to pass these items via CLI params. We validate later.

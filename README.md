@@ -54,9 +54,12 @@ To run straight from the command line, run
 
 `cycle-certs --domain=<YOUR DOMAIN> --apikey=<API KEY> --hub=<HUB ID>`
 
-This will download the certificate bundle and install it in the current working directory with the name `<YOUR DOMAIN>.ca-bundle`. 
+This will download a certificate bundle and private key associated with the specified domain. By default, the files will be stored in the current working directory with the names:
 
-_Note - If your certificate applies to multiple domains, they will be separated by an underscore. All periods are also replaced with underscores. Therefore, if your domain were e.g. cycle.io, the bundle would be saved to a file `cycle_io.ca-bundle`. If your domains were `cycle.io` and `test.com`, the bundle would be saved to `cycle_io_test_com.ca-bundle`_
+- `<YOUR DOMAIN>.ca-bundle`
+- `<YOUR DOMAIN>.key` 
+
+_Note - If your certificate applies to multiple domains, they will be separated by an underscore. All periods are also replaced with underscores. Therefore, if your domain were e.g. cycle.io, the bundle would be saved to a file `cycle_io.ca-bundle`. If your domains were `cycle.io` and `test.com`, the bundle would be saved to `cycle_io_test_com.ca-bundle`. To avoid this, pass the `--filename` argument._
 
 The process will sleep in the background, until 14 days before the certificate expires, when it will attempt to fetch the latest certificate again. (Cycle renews certificates 65 days after generation).
 
