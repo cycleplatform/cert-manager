@@ -18,7 +18,7 @@ pub struct Config {
     pub apikey: String,
     pub hub: String,
     pub wildcard: bool,
-    pub exec: Option<String>
+    pub exec: Option<String>,
 }
 
 impl Config {

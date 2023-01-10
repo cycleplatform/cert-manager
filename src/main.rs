@@ -124,7 +124,7 @@ fn main() -> Result<()> {
         if let Some(cmd) = config.exec.as_deref() {
             log::info!("Executing command '{}'", cmd);
             let c = cmd::Cmd::new(cmd.into())?;
-            
+
             if let Err(err) = c.execute() {
                 log::error!("Failed executing command: {:?}", err);
                 log::info!("Retrying in 3 hours...");

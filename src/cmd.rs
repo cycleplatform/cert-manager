@@ -22,10 +22,7 @@ impl Cmd {
     }
 
     pub(crate) fn execute(&self) -> Result<()> {
-        Command::new(&self.cmd)
-            .args(&self.args)
-            .spawn()?
-            .wait()?;
+        Command::new(&self.cmd).args(&self.args).spawn()?.wait()?;
 
         Ok(())
     }
