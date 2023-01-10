@@ -66,7 +66,7 @@ pub(crate) struct CycleCert {
     domains: Vec<String>,
     bundle: String,
     events: Events,
-    private_key: String
+    private_key: String,
 }
 
 impl CycleCert {
