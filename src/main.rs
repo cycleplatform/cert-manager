@@ -8,6 +8,7 @@ use crate::{cert::CertificateManager, config::Config};
 
 mod api;
 mod cert;
+mod cmd;
 mod config;
 
 #[derive(Parser)]
@@ -50,6 +51,11 @@ pub(crate) struct Cli {
     /// Whether to check for a wildcard certificate that matches the domain.
     #[arg(short, long)]
     wildcard: bool,
+
+    /// A command to run after successfully fetching a certificate. Useful for
+    /// restarting services that are dependent on the certificates.
+    #[arg(short, long)]
+    exec: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -89,14 +95,21 @@ fn main() -> Result<()> {
 
         let filename_override = config.filename.as_deref();
 
-        cert.write_to_disk(&config.certificate_path, filename_override)
+        if let Err(err) = cert
+            .write_to_disk(&config.certificate_path, filename_override)
             .with_context(|| {
                 format!(
                     "Failed to write files. \nCertificate: {}\nKey: {}",
                     cert.get_certificate_full_filepath(&config.certificate_path, filename_override),
                     cert.get_private_key_full_filepath(&config.certificate_path, filename_override)
                 )
-            })?;
+            })
+        {
+            log::error!("{:?}", err);
+            log::info!("Retrying in 3 hours...");
+            sleep(Duration::from_secs(3 * 60 * 60));
+            continue;
+        }
 
         log::info!(
             "Wrote certificate bundle to {}",
@@ -107,6 +120,18 @@ fn main() -> Result<()> {
             "Wrote private key to {}",
             cert.get_private_key_full_filepath(&config.certificate_path, filename_override)
         );
+
+        if let Some(cmd) = config.exec.as_deref() {
+            log::info!("Executing command '{}'", cmd);
+            let c = cmd::Cmd::new(cmd.into())?;
+            
+            if let Err(err) = c.execute() {
+                log::error!("Failed executing command: {:?}", err);
+                log::info!("Retrying in 3 hours...");
+                sleep(Duration::from_secs(3 * 60 * 60));
+                continue;
+            }
+        }
 
         log::info!("Next fetch in {} days", duration.num_days());
 
