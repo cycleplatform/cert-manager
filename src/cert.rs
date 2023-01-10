@@ -124,12 +124,13 @@ mod tests {
     fn test_writing_bundle() -> anyhow::Result<()> {
         let dir = tempdir()?;
 
-        let content = String::from("CONTENTS OF CERTIFICATE HERE");
+        let bundle = String::from("CONTENTS OF CERTIFICATE HERE");
+        let private_key = String::from("Key to the castle");
 
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string()],
-            bundle: content.clone(),
-            private_key: "Key to the castle".into(),
+            bundle: bundle.clone(),
+            private_key: private_key.clone(),
             events: Events {
                 generated: Utc::now(),
             },
@@ -137,8 +138,11 @@ mod tests {
 
         cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
 
-        let cert_file_content = std::fs::read_to_string(dir.path().join("cycle_io.ca-bundle"))?;
-        assert_eq!(content, cert_file_content);
+        let bundle_file = std::fs::read_to_string(dir.path().join("cycle_io.ca-bundle"))?;
+        assert_eq!(bundle, bundle_file);
+
+        let key_file = std::fs::read_to_string(dir.path().join("cycle_io.key"))?;
+        assert_eq!(private_key, key_file);
 
         Ok(())
     }
@@ -147,12 +151,13 @@ mod tests {
     fn test_writing_bundle_multiple_domains() -> anyhow::Result<()> {
         let dir = tempdir()?;
 
-        let content = String::from("CONTENTS OF CERTIFICATE HERE");
+        let bundle = String::from("CONTENTS OF CERTIFICATE HERE");
+        let private_key = String::from("Key to the castle");
 
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
-            bundle: content.clone(),
-            private_key: "Key to the castle".into(),
+            bundle: bundle.clone(),
+            private_key: private_key.clone(),
             events: Events {
                 generated: Utc::now(),
             },
@@ -160,9 +165,12 @@ mod tests {
 
         cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
 
-        let cert_file_content =
+        let bundle_file =
             std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.ca-bundle"))?;
-        assert_eq!(content, cert_file_content);
+        assert_eq!(bundle, bundle_file);
+
+        let key_file = std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.key"))?;
+        assert_eq!(private_key, key_file);
 
         Ok(())
     }
