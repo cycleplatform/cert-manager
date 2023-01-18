@@ -18,6 +18,7 @@ pub struct Config {
     pub apikey: String,
     pub hub: String,
     pub wildcard: bool,
+    pub exec: Option<String>,
 }
 
 impl Config {
@@ -76,6 +77,10 @@ impl Config {
             self.hub = hub.to_owned();
         }
 
+        if let Some(cmd) = cli.exec.as_deref() {
+            self.exec = Some(cmd.to_owned());
+        }
+
         self.wildcard = cli.wildcard;
 
         self
@@ -117,6 +122,7 @@ mod tests {
             "--wildcard",
             "--hub=myhub",
         ]);
+
         cfg = cfg.merge_args(&cli);
 
         assert_eq!(cfg.apikey, "123");
