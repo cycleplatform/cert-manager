@@ -10,6 +10,15 @@ WORKDIR /cycle
 COPY . .
 RUN cargo build --bins --release
 
+# Image for docker-in-docker builds where the host may want to restart another
+# container etc.
+FROM alpine:3.10  as dnd
+RUN apk add --update docker openrc
+RUN rc-update add docker boot
+VOLUME ["/certs"]
+COPY --from=builder /cycle/target/release/cycle-certs /
+ENTRYPOINT ["./cycle-certs", "--path=/certs", "--config=/certs/config"]
+
 FROM scratch
 VOLUME ["/certs"]
 COPY --from=builder /cycle/target/release/cycle-certs /
