@@ -34,6 +34,11 @@ By default, the process will look for the config file in the mounted volume
 (`/certs/config.toml` inside the container). You can provide your own location
 by passing the `--config=<FILENAME>` option instead.
 
+
+#### Running docker in docker
+
+It may be desired to run a docker-based command after fetching the certificate bundle. In our case, we wanted to restart our gitlab container so the new certificates would be picked up. In that case, use the image `cycleplatform/cycle-certs:dnd`
+
 ### From Source
 
 This assumes you have set up a rust toolchain.
@@ -81,6 +86,7 @@ While all configuration options can be set via command line, it may be preferrab
 | certificate_path | false | The path to write the fetched certificate bundle to. If none is selected, it will be written to the current directory. |
 | filename | false | Overrides the filename of the certificate. By default, it will be the name of the domain the cert is applicable for |
 | cluster | false | The cluster the certificate is on. By default, it is the main api.cycle.io cluster |
+| exec | false | A command you wish to run after the certificates have been fetched, e.g. `/bin/bash myscript.sh`
 
 
 ### Example
