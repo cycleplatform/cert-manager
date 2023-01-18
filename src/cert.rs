@@ -66,13 +66,18 @@ pub(crate) struct CycleCert {
     domains: Vec<String>,
     bundle: String,
     events: Events,
+    private_key: String,
 }
 
 impl CycleCert {
     pub(crate) fn write_to_disk(&self, path: &str, filename: Option<&str>) -> io::Result<()> {
         create_dir_all(path)?;
-        let mut output = File::create(self.get_certificate_full_filepath(path, filename))?;
-        output.write_all(self.bundle.as_bytes())
+        let mut file = File::create(self.get_certificate_full_filepath(path, filename))?;
+        file.write_all(self.bundle.as_bytes())?;
+
+        // Reuse the file var for writing the key
+        file = File::create(self.get_private_key_full_filepath(path, filename))?;
+        file.write_all(self.private_key.as_bytes())
     }
 
     pub(crate) fn get_certificate_full_filepath(
@@ -86,6 +91,19 @@ impl CycleCert {
             self.domains.join("_").replace('.', "_")
         };
         format!("{}/{}.ca-bundle", path, name)
+    }
+
+    pub(crate) fn get_private_key_full_filepath(
+        &self,
+        path: &str,
+        filename: Option<&str>,
+    ) -> String {
+        let name = if let Some(n) = filename {
+            n.to_owned()
+        } else {
+            self.domains.join("_").replace('.', "_")
+        };
+        format!("{}/{}.key", path, name)
     }
 
     pub(crate) fn duration_until_refetch(&self, refetch_days: i64) -> Duration {
@@ -106,11 +124,13 @@ mod tests {
     fn test_writing_bundle() -> anyhow::Result<()> {
         let dir = tempdir()?;
 
-        let content = String::from("CONTENTS OF CERTIFICATE HERE");
+        let bundle = String::from("CONTENTS OF CERTIFICATE HERE");
+        let private_key = String::from("Key to the castle");
 
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string()],
-            bundle: content.clone(),
+            bundle: bundle.clone(),
+            private_key: private_key.clone(),
             events: Events {
                 generated: Utc::now(),
             },
@@ -118,8 +138,11 @@ mod tests {
 
         cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
 
-        let cert_file_content = std::fs::read_to_string(dir.path().join("cycle_io.ca-bundle"))?;
-        assert_eq!(content, cert_file_content);
+        let bundle_file = std::fs::read_to_string(dir.path().join("cycle_io.ca-bundle"))?;
+        assert_eq!(bundle, bundle_file);
+
+        let key_file = std::fs::read_to_string(dir.path().join("cycle_io.key"))?;
+        assert_eq!(private_key, key_file);
 
         Ok(())
     }
@@ -128,11 +151,13 @@ mod tests {
     fn test_writing_bundle_multiple_domains() -> anyhow::Result<()> {
         let dir = tempdir()?;
 
-        let content = String::from("CONTENTS OF CERTIFICATE HERE");
+        let bundle = String::from("CONTENTS OF CERTIFICATE HERE");
+        let private_key = String::from("Key to the castle");
 
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
-            bundle: content.clone(),
+            bundle: bundle.clone(),
+            private_key: private_key.clone(),
             events: Events {
                 generated: Utc::now(),
             },
@@ -140,9 +165,12 @@ mod tests {
 
         cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
 
-        let cert_file_content =
+        let bundle_file =
             std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.ca-bundle"))?;
-        assert_eq!(content, cert_file_content);
+        assert_eq!(bundle, bundle_file);
+
+        let key_file = std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.key"))?;
+        assert_eq!(private_key, key_file);
 
         Ok(())
     }
@@ -160,6 +188,7 @@ mod tests {
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
             bundle: String::from("CONTENTS OF CERTIFICATE HERE"),
+            private_key: "Key to the castle".into(),
             events: Events {
                 generated: DateTime::<Utc>::from_utc(start_of_day, Utc)
                     - Duration::days(generated_prior_days),

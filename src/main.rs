@@ -92,14 +92,20 @@ fn main() -> Result<()> {
         cert.write_to_disk(&config.certificate_path, filename_override)
             .with_context(|| {
                 format!(
-                    "Failed to write certificate to path {}",
-                    cert.get_certificate_full_filepath(&config.certificate_path, filename_override)
+                    "Failed to write files. \nCertificate: {}\nKey: {}",
+                    cert.get_certificate_full_filepath(&config.certificate_path, filename_override),
+                    cert.get_private_key_full_filepath(&config.certificate_path, filename_override)
                 )
             })?;
 
         log::info!(
             "Wrote certificate bundle to {}",
             cert.get_certificate_full_filepath(&config.certificate_path, filename_override)
+        );
+
+        log::info!(
+            "Wrote private key to {}",
+            cert.get_private_key_full_filepath(&config.certificate_path, filename_override)
         );
 
         log::info!("Next fetch in {} days", duration.num_days());
