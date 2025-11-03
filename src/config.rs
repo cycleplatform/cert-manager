@@ -115,7 +115,6 @@ mod tests {
             "--path=./certs",
             "--filename=certs",
             "--core=api.dev.cycle.io",
-            "--wildcard",
             "--hub=myhub",
         ]);
 
