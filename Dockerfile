@@ -1,4 +1,4 @@
-FROM docker.io/library/rust:1.66-alpine as builder
+FROM docker.io/library/rust:1.91-alpine AS builder
 RUN apk add --no-cache musl-dev pkgconf git
 
 # Set `SYSROOT` to a dummy path (default is /usr) because pkg-config-rs *always*

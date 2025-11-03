@@ -1,6 +1,6 @@
 [package]
 name = "cycle-certs"
-version = "1.0.0"
+version = "1.2.0"
 edition = "2021"
 license = "MIT"
 authors = ["Petrichor, Inc."]
@@ -11,14 +11,18 @@ repository = "https://github.com/cycleplatform/cycle-certs/"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.68"
+anyhow = "1.0.100"
 chrono = { version = "0.4.23", features = ["serde"] }
 clap = { version = "4.0.32", features = ["derive"] }
 config = { version = "0.13.3", features = ["toml"] }
 directories = "4.0.1"
 env_logger = "0.10.0"
 log = "0.4.17"
-reqwest = { version = "0.11.13", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12.24", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.91"
 shell-words = "1.1.0"

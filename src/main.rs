@@ -32,9 +32,9 @@ pub(crate) struct Cli {
     #[arg(short, long)]
     filename: Option<String>,
 
-    /// The cluster the certificate is on. By default, it is the main api.cycle.io cluster.
+    /// The core the certificate is on. By default, it is the main api.cycle.io core.
     #[arg(long)]
-    cluster: Option<String>,
+    core: Option<String>,
 
     /// Your Cycle API Key. For more information, see https://docs.cycle.io/docs/hubs/API-access/api-key-generate
     #[arg(short, long)]
@@ -47,10 +47,6 @@ pub(crate) struct Cli {
     /// The hub ID the DNS record is associated with.
     #[arg(long)]
     hub: Option<String>,
-
-    /// Whether to check for a wildcard certificate that matches the domain.
-    #[arg(short, long)]
-    wildcard: bool,
 
     /// A command to run after successfully fetching a certificate. Useful for
     /// restarting services that are dependent on the certificates.
