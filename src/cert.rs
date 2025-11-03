@@ -24,14 +24,13 @@ impl<'a> CertificateManager<'a> {
     pub fn fetch_certificate(&self) -> anyhow::Result<CycleCert> {
         let mut query = vec![("domain", self.config.domain.as_str())];
 
-        if self.config.wildcard {
-            query.push(("wildcard", "true"));
-        }
+        // pass private to get the full certificate
+        query.push(("private", "true"));
 
         let response = reqwest::blocking::Client::new()
             .get(format!(
                 "https://{}/v1/dns/tls/certificates/lookup",
-                self.config.cluster
+                self.config.core
             ))
             .header(
                 "Authorization",

@@ -14,10 +14,9 @@ pub struct Config {
     pub refresh_days: u64,
     pub certificate_path: String,
     pub filename: Option<String>,
-    pub cluster: String,
+    pub core: String,
     pub apikey: String,
     pub hub: String,
-    pub wildcard: bool,
     pub exec: Option<String>,
 }
 
@@ -36,12 +35,11 @@ impl Config {
             )
             .set_default("certificate_path", ".")?
             .set_default("refresh_days", 14)?
-            .set_default("cluster", "api.cycle.io")?
+            .set_default("core", "api.cycle.io")?
             // Allow the user to pass these items via CLI params. We validate later.
             .set_default("domain", "")?
             .set_default("apikey", "")?
             .set_default("hub", "")?
-            .set_default("wildcard", false)?
             .build()?;
 
         Ok(c.try_deserialize()?)
@@ -65,8 +63,8 @@ impl Config {
             self.filename = Some(filename_override.to_owned());
         }
 
-        if let Some(cluster) = cli.cluster.as_deref() {
-            self.cluster = cluster.to_owned();
+        if let Some(core) = cli.core.as_deref() {
+            self.core = core.to_owned();
         }
 
         if let Some(key) = cli.apikey.as_deref() {
@@ -80,8 +78,6 @@ impl Config {
         if let Some(cmd) = cli.exec.as_deref() {
             self.exec = Some(cmd.to_owned());
         }
-
-        self.wildcard = cli.wildcard;
 
         self
     }
@@ -118,7 +114,7 @@ mod tests {
             "--apikey=123",
             "--path=./certs",
             "--filename=certs",
-            "--cluster=api.dev.cycle.io",
+            "--core=api.dev.cycle.io",
             "--wildcard",
             "--hub=myhub",
         ]);
@@ -129,9 +125,8 @@ mod tests {
         assert_eq!(cfg.domain, "cycle.io");
         assert_eq!(cfg.certificate_path, "./certs");
         assert_eq!(cfg.filename, Some("certs".into()));
-        assert_eq!(cfg.cluster, "api.dev.cycle.io");
+        assert_eq!(cfg.core, "api.dev.cycle.io");
         assert_eq!(cfg.hub, "myhub");
-        assert!(cfg.wildcard);
 
         Ok(())
     }
