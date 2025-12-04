@@ -1,16 +1,25 @@
 FROM docker.io/library/rust:1.91-alpine AS builder
 RUN apk add --no-cache musl-dev pkgconf git
 
-# Set `SYSROOT` to a dummy path (default is /usr) because pkg-config-rs *always*
-# links those located in that path dynamically but we want static linking, c.f.
-# https://github.com/rust-lang/pkg-config-rs/blob/54325785816695df031cef3b26b6a9a203bbc01b/src/lib.rs#L613
+# Force pkg-config-rs to avoid linking from /usr
 ENV SYSROOT=/dummy
 
 WORKDIR /cycle
 COPY . .
 RUN cargo build --bins --release
 
-FROM scratch
+
+FROM scratch AS minimal
 VOLUME ["/certs"]
 COPY --from=builder /cycle/target/release/cycle-certs /
-ENTRYPOINT ["./cycle-certs", "--path=/certs", "--config=/certs/config"]
+ENTRYPOINT ["/cycle-certs", "--path=/certs", "--config=/certs/config"]
+
+FROM alpine
+RUN apk add --no-cache curl
+
+VOLUME ["/certs"]
+
+COPY --from=builder /cycle/target/release/cycle-certs /usr/local/bin/cycle-certs
+
+ENTRYPOINT ["/usr/local/bin/cycle-certs", "--path=/certs", "--config=/certs/config"]
+
