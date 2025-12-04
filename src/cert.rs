@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Context};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 
@@ -71,12 +72,24 @@ pub(crate) struct CycleCert {
 impl CycleCert {
     pub(crate) fn write_to_disk(&self, path: &str, filename: Option<&str>) -> io::Result<()> {
         create_dir_all(path)?;
-        let mut file = File::create(self.get_certificate_full_filepath(path, filename))?;
-        file.write_all(self.bundle.as_bytes())?;
 
-        // Reuse the file var for writing the key
-        file = File::create(self.get_private_key_full_filepath(path, filename))?;
-        file.write_all(self.private_key.as_bytes())
+        // Decode certificate bundle (Base64 → PEM)
+        let cert_bytes = general_purpose::STANDARD
+            .decode(self.bundle.trim())
+            .map_err(to_io_error)?;
+
+        let mut file = File::create(self.get_certificate_full_filepath(path, filename))?;
+        file.write_all(&cert_bytes)?;
+
+        // Decode private key (Base64 → PEM)
+        let key_bytes = general_purpose::STANDARD
+            .decode(self.private_key.trim())
+            .map_err(to_io_error)?;
+
+        let mut file = File::create(self.get_private_key_full_filepath(path, filename))?;
+        file.write_all(&key_bytes)?;
+
+        Ok(())
     }
 
     pub(crate) fn get_certificate_full_filepath(
@@ -112,8 +125,16 @@ impl CycleCert {
     }
 }
 
+fn to_io_error(err: base64::DecodeError) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("Base64 decode error: {}", err),
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    use base64::{engine::general_purpose, Engine as _};
     use chrono::{Datelike, NaiveDate, Timelike};
     use tempfile::tempdir;
 
@@ -123,13 +144,16 @@ mod tests {
     fn test_writing_bundle() -> anyhow::Result<()> {
         let dir = tempdir()?;
 
-        let bundle = String::from("CONTENTS OF CERTIFICATE HERE");
-        let private_key = String::from("Key to the castle");
+        let bundle_raw = "CONTENTS OF CERTIFICATE HERE";
+        let private_key_raw = "Key to the castle";
+
+        let bundle_b64 = general_purpose::STANDARD.encode(bundle_raw);
+        let private_key_b64 = general_purpose::STANDARD.encode(private_key_raw);
 
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string()],
-            bundle: bundle.clone(),
-            private_key: private_key.clone(),
+            bundle: bundle_b64.clone(),
+            private_key: private_key_b64.clone(),
             events: Events {
                 generated: Utc::now(),
             },
@@ -138,10 +162,10 @@ mod tests {
         cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
 
         let bundle_file = std::fs::read_to_string(dir.path().join("cycle_io.ca-bundle"))?;
-        assert_eq!(bundle, bundle_file);
+        assert_eq!(bundle_raw, bundle_file);
 
         let key_file = std::fs::read_to_string(dir.path().join("cycle_io.key"))?;
-        assert_eq!(private_key, key_file);
+        assert_eq!(private_key_raw, key_file);
 
         Ok(())
     }
@@ -150,13 +174,16 @@ mod tests {
     fn test_writing_bundle_multiple_domains() -> anyhow::Result<()> {
         let dir = tempdir()?;
 
-        let bundle = String::from("CONTENTS OF CERTIFICATE HERE");
-        let private_key = String::from("Key to the castle");
+        let bundle_raw = "CONTENTS OF CERTIFICATE HERE";
+        let private_key_raw = "Key to the castle";
+
+        let bundle_b64 = general_purpose::STANDARD.encode(bundle_raw);
+        let private_key_b64 = general_purpose::STANDARD.encode(private_key_raw);
 
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
-            bundle: bundle.clone(),
-            private_key: private_key.clone(),
+            bundle: bundle_b64.clone(),
+            private_key: private_key_b64.clone(),
             events: Events {
                 generated: Utc::now(),
             },
@@ -166,10 +193,10 @@ mod tests {
 
         let bundle_file =
             std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.ca-bundle"))?;
-        assert_eq!(bundle, bundle_file);
+        assert_eq!(bundle_raw, bundle_file);
 
         let key_file = std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.key"))?;
-        assert_eq!(private_key, key_file);
+        assert_eq!(private_key_raw, key_file);
 
         Ok(())
     }
@@ -186,8 +213,8 @@ mod tests {
 
         let cert = CycleCert {
             domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
-            bundle: String::from("CONTENTS OF CERTIFICATE HERE"),
-            private_key: "Key to the castle".into(),
+            bundle: general_purpose::STANDARD.encode("dummy"),
+            private_key: general_purpose::STANDARD.encode("dummy-key"),
             events: Events {
                 generated: DateTime::<Utc>::from_utc(start_of_day, Utc)
                     - Duration::days(generated_prior_days),
@@ -197,10 +224,10 @@ mod tests {
         let dur_from_now = cert.duration_until_refetch(days_before_refresh);
 
         let should_be_num_days = EXPIRATION_DAYS - days_before_refresh - generated_prior_days;
+
         assert_eq!(
             dur_from_now.num_days(),
             if now.hour() > 0 {
-                // not a whole day if we're not at exactly midnight
                 should_be_num_days - 1
             } else {
                 should_be_num_days
