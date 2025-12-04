@@ -4,9 +4,9 @@ use std::{
 };
 
 use anyhow::{bail, Context};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
-use base64::{engine::general_purpose, Engine as _};
 
 use crate::api::ApiResult;
 
@@ -126,14 +126,17 @@ impl CycleCert {
 }
 
 fn to_io_error(err: base64::DecodeError) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, format!("Base64 decode error: {}", err))
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("Base64 decode error: {}", err),
+    )
 }
 
 #[cfg(test)]
 mod tests {
+    use base64::{engine::general_purpose, Engine as _};
     use chrono::{Datelike, NaiveDate, Timelike};
     use tempfile::tempdir;
-    use base64::{engine::general_purpose, Engine as _};
 
     use super::*;
 
@@ -158,12 +161,10 @@ mod tests {
 
         cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
 
-        let bundle_file =
-            std::fs::read_to_string(dir.path().join("cycle_io.ca-bundle"))?;
+        let bundle_file = std::fs::read_to_string(dir.path().join("cycle_io.ca-bundle"))?;
         assert_eq!(bundle_raw, bundle_file);
 
-        let key_file =
-            std::fs::read_to_string(dir.path().join("cycle_io.key"))?;
+        let key_file = std::fs::read_to_string(dir.path().join("cycle_io.key"))?;
         assert_eq!(private_key_raw, key_file);
 
         Ok(())
@@ -180,10 +181,7 @@ mod tests {
         let private_key_b64 = general_purpose::STANDARD.encode(private_key_raw);
 
         let cert = CycleCert {
-            domains: vec![
-                "cycle.io".to_string(),
-                "petrichor.io".to_string()
-            ],
+            domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
             bundle: bundle_b64.clone(),
             private_key: private_key_b64.clone(),
             events: Events {
@@ -193,14 +191,11 @@ mod tests {
 
         cert.write_to_disk(dir.path().to_str().unwrap(), None)?;
 
-        let bundle_file = std::fs::read_to_string(
-            dir.path().join("cycle_io_petrichor_io.ca-bundle")
-        )?;
+        let bundle_file =
+            std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.ca-bundle"))?;
         assert_eq!(bundle_raw, bundle_file);
 
-        let key_file = std::fs::read_to_string(
-            dir.path().join("cycle_io_petrichor_io.key")
-        )?;
+        let key_file = std::fs::read_to_string(dir.path().join("cycle_io_petrichor_io.key"))?;
         assert_eq!(private_key_raw, key_file);
 
         Ok(())
@@ -228,8 +223,7 @@ mod tests {
 
         let dur_from_now = cert.duration_until_refetch(days_before_refresh);
 
-        let should_be_num_days =
-            EXPIRATION_DAYS - days_before_refresh - generated_prior_days;
+        let should_be_num_days = EXPIRATION_DAYS - days_before_refresh - generated_prior_days;
 
         assert_eq!(
             dur_from_now.num_days(),
