@@ -5,8 +5,23 @@ use std::{
 
 use anyhow::{bail, Result};
 use serde::Deserialize;
+use std::collections::HashMap;
 
 use crate::Cli;
+
+#[derive(Deserialize, Debug)]
+pub struct Webhook {
+    pub url: String,
+    #[serde(default = "default_method")]
+    pub method: String,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    pub body: Option<String>,
+}
+
+fn default_method() -> String {
+    "POST".to_owned()
+}
 
 #[derive(Deserialize)]
 pub struct Config {
@@ -18,6 +33,8 @@ pub struct Config {
     pub apikey: String,
     pub hub: String,
     pub exec: Option<String>,
+    #[serde(default)]
+    pub webhooks: Vec<Webhook>,
 }
 
 impl Config {

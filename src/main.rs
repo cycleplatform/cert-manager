@@ -10,6 +10,7 @@ mod api;
 mod cert;
 mod cmd;
 mod config;
+mod webhook;
 
 #[derive(Parser)]
 #[command(author, about, long_about = None)]
@@ -127,6 +128,13 @@ fn main() -> Result<()> {
                 sleep(Duration::from_secs(3 * 60 * 60));
                 continue;
             }
+        }
+
+        if let Err(err) = webhook::call_all(&config.webhooks) {
+            log::error!("{:?}", err);
+            log::info!("Retrying in 3 hours...");
+            sleep(Duration::from_secs(3 * 60 * 60));
+            continue;
         }
 
         log::info!("Next fetch in {} days", duration.num_days());

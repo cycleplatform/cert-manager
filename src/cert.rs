@@ -121,7 +121,14 @@ impl CycleCert {
     pub(crate) fn duration_until_refetch(&self, refetch_days: i64) -> Duration {
         let date = (self.events.generated + Duration::days(EXPIRATION_DAYS))
             - Duration::days(refetch_days);
-        date - Utc::now()
+        let remaining = date - Utc::now();
+        let minimum = Duration::hours(3);
+
+        if remaining < minimum {
+            return minimum;
+        }
+
+        remaining
     }
 }
 
