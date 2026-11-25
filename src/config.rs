@@ -26,7 +26,9 @@ fn default_method() -> String {
 #[derive(Deserialize)]
 pub struct Config {
     pub domain: String,
-    pub refresh_days: u64,
+    /// Deprecated and ignored: certificates are checked every `check_interval_hours`.
+    pub refresh_days: Option<u64>,
+    pub check_interval_hours: u64,
     pub certificate_path: String,
     pub filename: Option<String>,
     pub core: String,
@@ -51,7 +53,7 @@ impl Config {
                 .required(false),
             )
             .set_default("certificate_path", ".")?
-            .set_default("refresh_days", 14)?
+            .set_default("check_interval_hours", 24)?
             .set_default("core", "api.cycle.io")?
             // Allow the user to pass these items via CLI params. We validate later.
             .set_default("domain", "")?
@@ -73,7 +75,11 @@ impl Config {
         }
 
         if let Some(refresh_days) = cli.refresh_days {
-            self.refresh_days = refresh_days;
+            self.refresh_days = Some(refresh_days);
+        }
+
+        if let Some(hours) = cli.check_interval_hours {
+            self.check_interval_hours = hours;
         }
 
         if let Some(filename_override) = cli.filename.as_deref() {
@@ -112,6 +118,10 @@ impl Config {
             bail!("Missing hub ID - A hub ID must be provided.")
         }
 
+        if self.check_interval_hours == 0 {
+            bail!("check_interval_hours must be at least 1.")
+        }
+
         Ok(self)
     }
 }
@@ -133,6 +143,7 @@ mod tests {
             "--filename=certs",
             "--core=api.dev.cycle.io",
             "--hub=myhub",
+            "--check-interval-hours=6",
         ]);
 
         cfg = cfg.merge_args(&cli);
@@ -143,6 +154,8 @@ mod tests {
         assert_eq!(cfg.filename, Some("certs".into()));
         assert_eq!(cfg.core, "api.dev.cycle.io");
         assert_eq!(cfg.hub, "myhub");
+        assert_eq!(cfg.check_interval_hours, 6);
+        assert_eq!(cfg.refresh_days, None);
 
         Ok(())
     }

@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::Parser;
 use env_logger::Env;
 use std::{io::Write, path::PathBuf, thread::sleep, time::Duration};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::{
-    cert::{CertificateManager, CycleCert},
+    cert::{ApiRejection, CertificateManager, CycleCert},
     config::Config,
 };
 
@@ -41,11 +42,15 @@ pub(crate) struct Cli {
     core: Option<String>,
 
     /// Your Cycle API Key. For more information, see https://docs.cycle.io/docs/hubs/API-access/api-key-generate
-    #[arg(short, long)]
+    #[arg(short, long, env = "CYCLE_CERTS_APIKEY", hide_env_values = true)]
     apikey: Option<String>,
 
-    /// The number of days before the expiration to refresh this certificate. Must be a positive number.
-    #[arg(short, long, default_value = "14")]
+    /// How often to check Cycle for a renewed certificate, in hours. Defaults to 24.
+    #[arg(long)]
+    check_interval_hours: Option<u64>,
+
+    /// Deprecated and ignored. Certificates are now checked every --check-interval-hours.
+    #[arg(short, long, hide = true)]
     refresh_days: Option<u64>,
 
     /// The hub ID the DNS record is associated with.
@@ -58,8 +63,16 @@ pub(crate) struct Cli {
     exec: Option<String>,
 }
 
-/// How long to wait before trying again after any failure.
+/// How long to wait before trying again after any failure (or the check
+/// interval, if that's shorter).
 const RETRY_DELAY: Duration = Duration::from_secs(3 * 60 * 60);
+
+/// Log a warning when the latest certificate expires within this many days.
+/// Cycle renews certificates with 25 days left, so this means renewal is late.
+const EXPIRY_WARNING_DAYS: i64 = 20;
+
+/// Log an error when the latest certificate expires within this many days.
+const EXPIRY_ERROR_DAYS: i64 = 7;
 
 /// Tracks which steps have completed for the most recently fetched certificate,
 /// so a failure only retries the step that failed, and an unchanged certificate
@@ -106,10 +119,12 @@ fn main() -> Result<()> {
         .merge_args(&cli)
         .validate()?;
 
-    let refresh_days: i64 = config
-        .refresh_days
-        .try_into()
-        .with_context(|| "Failed to convert refresh days into i64")?;
+    if config.refresh_days.is_some() {
+        log::warn!(
+            "refresh_days is deprecated and ignored. Certificates are checked every {} hours (check_interval_hours).",
+            config.check_interval_hours
+        );
+    }
 
     let exec = config
         .exec
@@ -118,46 +133,73 @@ fn main() -> Result<()> {
         .transpose()
         .with_context(|| "Invalid exec command")?;
 
+    let interval = Duration::from_secs(config.check_interval_hours * 60 * 60);
+    let retry_delay = RETRY_DELAY.min(interval);
     let mut progress: Option<Progress> = None;
 
     loop {
-        log::info!("Fetching certificate for domain {}", config.domain);
+        let succeeded = check(&config, exec.as_ref(), &mut progress)?;
 
-        let cert = match CertificateManager::new(&config).fetch_certificate() {
-            Ok(cert) => cert,
-            Err(err) => {
-                log::error!("Failed to fetch certificate: {:?}", err);
-                retry_later();
-                continue;
-            }
-        };
-
-        log::info!("Successfully fetched certificate bundle.");
-
-        let current = match progress.take() {
-            Some(p) if p.cert.same_material(&cert) => p,
-            _ => Progress::new(cert),
-        };
-        let current = progress.insert(current);
-
-        if current.is_complete(&config) {
-            log::info!("Certificate unchanged since last fetch; nothing to do.");
-        } else if let Err(err) = apply(&config, exec.as_ref(), current) {
-            log::error!("{:?}", err);
-            retry_later();
-            continue;
+        if let Some(p) = progress.as_ref() {
+            warn_if_expiring(&config.domain, &p.cert);
         }
 
-        let duration = current.cert.duration_until_refetch(refresh_days);
+        let delay = if succeeded { interval } else { retry_delay };
 
-        log::info!("Next fetch in {} days", duration.num_days());
-
-        sleep(
-            duration
-                .to_std()
-                .with_context(|| "Failed attempting to sleep.")?,
-        )
+        log::info!("Next check in {}", format_duration(delay));
+        sleep(delay);
     }
+}
+
+/// Fetches the certificate and applies it if it changed. Returns whether
+/// everything succeeded. Only returns an error for failures that retrying
+/// can't fix.
+fn check(
+    config: &Config,
+    exec: Option<&cmd::Cmd>,
+    progress: &mut Option<Progress>,
+) -> Result<bool> {
+    log::info!("Fetching certificate for domain {}", config.domain);
+
+    let cert = match CertificateManager::new(config).fetch_certificate() {
+        Ok(cert) => cert,
+        Err(err) => {
+            let is_auth_error = err
+                .downcast_ref::<ApiRejection>()
+                .is_some_and(ApiRejection::is_auth_error);
+
+            // Fail fast on bad credentials at startup so a misconfiguration is
+            // obvious, rather than buried in a log that only updates every few hours.
+            if is_auth_error && progress.is_none() {
+                return Err(err.context(
+                    "The Cycle API rejected the request. Check your API key, hub ID, and the API key's permissions.",
+                ));
+            }
+
+            log::error!("Failed to fetch certificate: {:?}", err);
+            return Ok(false);
+        }
+    };
+
+    log::info!("Successfully fetched certificate bundle.");
+
+    let current = match progress.take() {
+        Some(p) if p.cert.same_material(&cert) => p,
+        _ => Progress::new(cert),
+    };
+    let current = progress.insert(current);
+
+    if current.is_complete(config) {
+        log::info!("Certificate unchanged since last check; nothing to do.");
+        return Ok(true);
+    }
+
+    if let Err(err) = apply(config, exec, current) {
+        log::error!("{:?}", err);
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 /// Runs whichever steps haven't completed yet for this certificate: writing
@@ -203,9 +245,47 @@ fn apply(config: &Config, exec: Option<&cmd::Cmd>, progress: &mut Progress) -> R
     Ok(())
 }
 
-fn retry_later() {
-    log::info!("Retrying in 3 hours...");
-    sleep(RETRY_DELAY);
+fn warn_if_expiring(domain: &str, cert: &CycleCert) {
+    let expires = cert.expires_at();
+    let remaining = expires - Utc::now();
+
+    if remaining <= chrono::Duration::zero() {
+        log::error!(
+            "The latest certificate for {} expired at {}. Cycle has not renewed it.",
+            domain,
+            expires
+        );
+        return;
+    }
+
+    if remaining <= chrono::Duration::days(EXPIRY_ERROR_DAYS) {
+        log::error!(
+            "The latest certificate for {} expires in {} days ({}). Cycle has not renewed it.",
+            domain,
+            remaining.num_days(),
+            expires
+        );
+        return;
+    }
+
+    if remaining <= chrono::Duration::days(EXPIRY_WARNING_DAYS) {
+        log::warn!(
+            "The latest certificate for {} expires in {} days ({}). Cycle normally renews it with 25 days left.",
+            domain,
+            remaining.num_days(),
+            expires
+        );
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    let hours = duration.as_secs() / 3600;
+
+    if hours == 1 {
+        return "1 hour".to_owned();
+    }
+
+    format!("{} hours", hours)
 }
 
 fn print_welcome_message() {

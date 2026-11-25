@@ -15,9 +15,7 @@ pub struct ErrorEnvelope {
 pub struct ApiError {
     pub detail: Option<String>,
     pub code: String,
-    pub status: u32,
     pub title: String,
-    pub source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

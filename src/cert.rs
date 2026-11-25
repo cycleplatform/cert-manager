@@ -1,17 +1,44 @@
 use std::{
+    fmt,
     fs::{create_dir_all, metadata, remove_file, rename, set_permissions, File},
     io::{self, Write},
 };
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, Context};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Duration, Utc};
+use reqwest::StatusCode;
 use serde::Deserialize;
+use x509_parser::pem::Pem;
 
 use crate::api::ApiResult;
 
-/// The number of days from generation that a certificate expires.
-const EXPIRATION_DAYS: i64 = 90;
+/// Used only if the expiry can't be read from the certificate itself: the
+/// number of days from generation that a Cycle certificate expires.
+const FALLBACK_EXPIRATION_DAYS: i64 = 90;
+
+/// The Cycle API returned an error response.
+#[derive(Debug)]
+pub(crate) struct ApiRejection {
+    pub status: StatusCode,
+    pub message: String,
+}
+
+impl ApiRejection {
+    /// Whether the API rejected our credentials (API key or hub), as opposed to
+    /// something that may resolve on its own, like a certificate not existing yet.
+    pub(crate) fn is_auth_error(&self) -> bool {
+        self.status == StatusCode::UNAUTHORIZED || self.status == StatusCode::FORBIDDEN
+    }
+}
+
+impl fmt::Display for ApiRejection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Cycle API returned {}: {}", self.status, self.message)
+    }
+}
+
+impl std::error::Error for ApiRejection {}
 
 pub(crate) struct CertificateManager<'a> {
     config: &'a super::config::Config,
@@ -41,17 +68,26 @@ impl<'a> CertificateManager<'a> {
             .query(&query[..])
             .send()?;
 
-        let cert = response
-            .json::<ApiResult<CycleCert>>()
-            .with_context(|| "Failed parsing response from Cycle API.")?;
+        let status = response.status();
 
-        match cert {
-            ApiResult::Ok(c) => Ok(c.data),
-            ApiResult::Err(err) => bail!(format!(
-                "{}...{}",
-                err.error.title,
-                err.error.detail.unwrap_or_default()
-            )),
+        match response.json::<ApiResult<CycleCert>>() {
+            Ok(ApiResult::Ok(c)) => Ok(c.data),
+            Ok(ApiResult::Err(err)) => Err(ApiRejection {
+                status,
+                message: format!(
+                    "{} ({})...{}",
+                    err.error.title,
+                    err.error.code,
+                    err.error.detail.unwrap_or_default()
+                ),
+            }
+            .into()),
+            Err(err) if !status.is_success() => Err(ApiRejection {
+                status,
+                message: format!("unreadable error response: {}", err),
+            }
+            .into()),
+            Err(err) => Err(anyhow!(err).context("Failed parsing response from Cycle API.")),
         }
     }
 }
@@ -128,17 +164,42 @@ impl CycleCert {
         format!("{}/{}.key", path, name)
     }
 
-    pub(crate) fn duration_until_refetch(&self, refetch_days: i64) -> Duration {
-        let date = (self.events.generated + Duration::days(EXPIRATION_DAYS))
-            - Duration::days(refetch_days);
-        let remaining = date - Utc::now();
-        let minimum = Duration::hours(3);
+    /// When this certificate expires. Read from the bundle (the earliest
+    /// `notAfter` of any certificate in it, since the chain is only valid until
+    /// then), falling back to an estimate from the generation date.
+    pub(crate) fn expires_at(&self) -> DateTime<Utc> {
+        match self.parse_not_after() {
+            Ok(date) => date,
+            Err(err) => {
+                log::warn!(
+                    "Unable to read expiry from certificate, estimating from generation date: {:?}",
+                    err
+                );
+                self.events.generated + Duration::days(FALLBACK_EXPIRATION_DAYS)
+            }
+        }
+    }
 
-        if remaining < minimum {
-            return minimum;
+    fn parse_not_after(&self) -> anyhow::Result<DateTime<Utc>> {
+        let bytes = general_purpose::STANDARD.decode(self.bundle.trim())?;
+        let mut earliest: Option<DateTime<Utc>> = None;
+
+        for pem in Pem::iter_from_buffer(&bytes) {
+            let pem = pem.map_err(|e| anyhow!("Invalid PEM block: {}", e))?;
+            let cert = pem
+                .parse_x509()
+                .map_err(|e| anyhow!("Invalid certificate: {}", e))?;
+            let timestamp = cert.validity().not_after.timestamp();
+            let not_after = DateTime::from_timestamp(timestamp, 0)
+                .with_context(|| format!("Expiry timestamp {} out of range", timestamp))?;
+
+            earliest = match earliest {
+                Some(current) if current <= not_after => Some(current),
+                _ => Some(not_after),
+            };
         }
 
-        remaining
+        earliest.context("No certificates found in bundle")
     }
 }
 
@@ -194,8 +255,7 @@ fn to_io_error(err: base64::DecodeError) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use base64::{engine::general_purpose, Engine as _};
-    use chrono::{Datelike, NaiveDate, Timelike};
+    use base64::engine::general_purpose;
     use tempfile::tempdir;
 
     use super::*;
@@ -327,39 +387,52 @@ mod tests {
         assert!(!a.same_material(&test_cert("other bundle", "key")));
     }
 
+    fn bundle_cert(pem: &str, generated: DateTime<Utc>) -> CycleCert {
+        CycleCert {
+            domains: vec!["cycle.io".to_string()],
+            bundle: general_purpose::STANDARD.encode(pem),
+            private_key: general_purpose::STANDARD.encode("key"),
+            events: Events { generated },
+        }
+    }
+
+    // The fixtures hold two self-signed certs; the one expiring first has
+    // notAfter = 2026-12-25T14:43:06Z.
+    const EARLIEST_EXPIRY: i64 = 1_798_209_786;
+
     #[test]
-    fn test_calculate_expiration_time() -> anyhow::Result<()> {
-        let generated_prior_days = 2;
-        let days_before_refresh = 14;
-        let now = Utc::now();
-        let start_of_day = NaiveDate::from_ymd_opt(now.year(), now.month(), now.day())
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
+    fn test_expires_at_reads_earliest_not_after() {
+        let expected = DateTime::from_timestamp(EARLIEST_EXPIRY, 0).unwrap();
 
-        let cert = CycleCert {
-            domains: vec!["cycle.io".to_string(), "petrichor.io".to_string()],
-            bundle: general_purpose::STANDARD.encode("dummy"),
-            private_key: general_purpose::STANDARD.encode("dummy-key"),
-            events: Events {
-                generated: DateTime::<Utc>::from_utc(start_of_day, Utc)
-                    - Duration::days(generated_prior_days),
-            },
-        };
+        for pem in [
+            include_str!("../tests/fixtures/bundle.pem"),
+            include_str!("../tests/fixtures/bundle-reversed.pem"),
+        ] {
+            assert_eq!(bundle_cert(pem, Utc::now()).expires_at(), expected);
+        }
+    }
 
-        let dur_from_now = cert.duration_until_refetch(days_before_refresh);
-
-        let should_be_num_days = EXPIRATION_DAYS - days_before_refresh - generated_prior_days;
+    #[test]
+    fn test_expires_at_falls_back_to_generated() {
+        let generated = Utc::now() - Duration::days(10);
+        let cert = bundle_cert("not a certificate", generated);
 
         assert_eq!(
-            dur_from_now.num_days(),
-            if now.hour() > 0 {
-                should_be_num_days - 1
-            } else {
-                should_be_num_days
-            }
+            cert.expires_at(),
+            generated + Duration::days(FALLBACK_EXPIRATION_DAYS)
         );
+    }
 
-        Ok(())
+    #[test]
+    fn test_auth_errors() {
+        let rejection = |status| ApiRejection {
+            status,
+            message: String::new(),
+        };
+
+        assert!(rejection(StatusCode::UNAUTHORIZED).is_auth_error());
+        assert!(rejection(StatusCode::FORBIDDEN).is_auth_error());
+        assert!(!rejection(StatusCode::NOT_FOUND).is_auth_error());
+        assert!(!rejection(StatusCode::INTERNAL_SERVER_ERROR).is_auth_error());
     }
 }
