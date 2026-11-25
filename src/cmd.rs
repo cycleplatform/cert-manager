@@ -22,7 +22,29 @@ impl Cmd {
     }
 
     pub(crate) fn execute(&self) -> Result<()> {
-        Command::new(&self.cmd).args(&self.args).spawn()?.wait()?;
+        let status = Command::new(&self.cmd).args(&self.args).status()?;
+
+        if !status.success() {
+            bail!("Command '{}' exited with {}", self.cmd, status);
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_execute_success() -> Result<()> {
+        Cmd::new("true".into())?.execute()
+    }
+
+    #[test]
+    fn test_execute_failure_status() -> Result<()> {
+        let res = Cmd::new("false".into())?.execute();
+        assert!(res.is_err(), "A non-zero exit status should be an error.");
 
         Ok(())
     }

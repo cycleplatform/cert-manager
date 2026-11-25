@@ -4,7 +4,10 @@ use env_logger::Env;
 use std::{io::Write, path::PathBuf, thread::sleep, time::Duration};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
-use crate::{cert::CertificateManager, config::Config};
+use crate::{
+    cert::{CertificateManager, CycleCert},
+    config::Config,
+};
 
 mod api;
 mod cert;
@@ -55,6 +58,34 @@ pub(crate) struct Cli {
     exec: Option<String>,
 }
 
+/// How long to wait before trying again after any failure.
+const RETRY_DELAY: Duration = Duration::from_secs(3 * 60 * 60);
+
+/// Tracks which steps have completed for the most recently fetched certificate,
+/// so a failure only retries the step that failed, and an unchanged certificate
+/// doesn't rewrite files or fire hooks again.
+struct Progress {
+    cert: CycleCert,
+    written: bool,
+    exec_done: bool,
+    webhooks_done: usize,
+}
+
+impl Progress {
+    fn new(cert: CycleCert) -> Self {
+        Self {
+            cert,
+            written: false,
+            exec_done: false,
+            webhooks_done: 0,
+        }
+    }
+
+    fn is_complete(&self, config: &Config) -> bool {
+        self.written && self.exec_done && self.webhooks_done >= config.webhooks.len()
+    }
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .format_timestamp_secs()
@@ -62,80 +93,62 @@ fn main() -> Result<()> {
 
     print_welcome_message();
 
+    // When running as PID 1 (e.g. in the scratch Docker image), the kernel won't apply
+    // the default SIGTERM handler, so `docker stop` would hang until SIGKILL.
+    ctrlc::set_handler(|| {
+        log::info!("Received shutdown signal, exiting.");
+        std::process::exit(0);
+    })
+    .with_context(|| "Failed to install signal handler")?;
+
     let cli = Cli::parse();
     let config = Config::new(cli.config.as_deref())?
         .merge_args(&cli)
         .validate()?;
 
+    let refresh_days: i64 = config
+        .refresh_days
+        .try_into()
+        .with_context(|| "Failed to convert refresh days into i64")?;
+
+    let exec = config
+        .exec
+        .as_deref()
+        .map(|cmd| cmd::Cmd::new(cmd.into()))
+        .transpose()
+        .with_context(|| "Invalid exec command")?;
+
+    let mut progress: Option<Progress> = None;
+
     loop {
         log::info!("Fetching certificate for domain {}", config.domain);
 
-        let cm = CertificateManager::new(&config);
-        let res = cm.fetch_certificate();
-
-        if let Err(err) = res {
-            log::error!("Failed to fetch certificate: {:?}", err);
-            log::info!("Retrying in 3 hours...");
-            sleep(Duration::from_secs(3 * 60 * 60));
-            continue;
-        }
+        let cert = match CertificateManager::new(&config).fetch_certificate() {
+            Ok(cert) => cert,
+            Err(err) => {
+                log::error!("Failed to fetch certificate: {:?}", err);
+                retry_later();
+                continue;
+            }
+        };
 
         log::info!("Successfully fetched certificate bundle.");
 
-        let cert = res.unwrap();
-        let duration = cert.duration_until_refetch(
-            config
-                .refresh_days
-                .try_into()
-                .with_context(|| "Failed to convert refresh days into i64")?,
-        );
+        let current = match progress.take() {
+            Some(p) if p.cert.same_material(&cert) => p,
+            _ => Progress::new(cert),
+        };
+        let current = progress.insert(current);
 
-        let filename_override = config.filename.as_deref();
-
-        if let Err(err) = cert
-            .write_to_disk(&config.certificate_path, filename_override)
-            .with_context(|| {
-                format!(
-                    "Failed to write files. \nCertificate: {}\nKey: {}",
-                    cert.get_certificate_full_filepath(&config.certificate_path, filename_override),
-                    cert.get_private_key_full_filepath(&config.certificate_path, filename_override)
-                )
-            })
-        {
+        if current.is_complete(&config) {
+            log::info!("Certificate unchanged since last fetch; nothing to do.");
+        } else if let Err(err) = apply(&config, exec.as_ref(), current) {
             log::error!("{:?}", err);
-            log::info!("Retrying in 3 hours...");
-            sleep(Duration::from_secs(3 * 60 * 60));
+            retry_later();
             continue;
         }
 
-        log::info!(
-            "Wrote certificate bundle to {}",
-            cert.get_certificate_full_filepath(&config.certificate_path, filename_override)
-        );
-
-        log::info!(
-            "Wrote private key to {}",
-            cert.get_private_key_full_filepath(&config.certificate_path, filename_override)
-        );
-
-        if let Some(cmd) = config.exec.as_deref() {
-            log::info!("Executing command '{}'", cmd);
-            let c = cmd::Cmd::new(cmd.into())?;
-
-            if let Err(err) = c.execute() {
-                log::error!("Failed executing command: {:?}", err);
-                log::info!("Retrying in 3 hours...");
-                sleep(Duration::from_secs(3 * 60 * 60));
-                continue;
-            }
-        }
-
-        if let Err(err) = webhook::call_all(&config.webhooks) {
-            log::error!("{:?}", err);
-            log::info!("Retrying in 3 hours...");
-            sleep(Duration::from_secs(3 * 60 * 60));
-            continue;
-        }
+        let duration = current.cert.duration_until_refetch(refresh_days);
 
         log::info!("Next fetch in {} days", duration.num_days());
 
@@ -145,6 +158,54 @@ fn main() -> Result<()> {
                 .with_context(|| "Failed attempting to sleep.")?,
         )
     }
+}
+
+/// Runs whichever steps haven't completed yet for this certificate: writing
+/// files, the exec command, then each webhook in order.
+fn apply(config: &Config, exec: Option<&cmd::Cmd>, progress: &mut Progress) -> Result<()> {
+    let path = config.certificate_path.as_str();
+    let filename = config.filename.as_deref();
+
+    if !progress.written {
+        let cert_path = progress.cert.get_certificate_full_filepath(path, filename);
+        let key_path = progress.cert.get_private_key_full_filepath(path, filename);
+
+        progress
+            .cert
+            .write_to_disk(path, filename)
+            .with_context(|| {
+                format!(
+                    "Failed to write files. \nCertificate: {}\nKey: {}",
+                    cert_path, key_path
+                )
+            })?;
+
+        log::info!("Wrote certificate bundle to {}", cert_path);
+        log::info!("Wrote private key to {}", key_path);
+
+        progress.written = true;
+    }
+
+    if !progress.exec_done {
+        if let Some(cmd) = exec {
+            log::info!(
+                "Executing command '{}'",
+                config.exec.as_deref().unwrap_or_default()
+            );
+            cmd.execute().with_context(|| "Failed executing command")?;
+        }
+
+        progress.exec_done = true;
+    }
+
+    webhook::call_remaining(&config.webhooks, &mut progress.webhooks_done)?;
+
+    Ok(())
+}
+
+fn retry_later() {
+    log::info!("Retrying in 3 hours...");
+    sleep(RETRY_DELAY);
 }
 
 fn print_welcome_message() {

@@ -16,6 +16,7 @@ base64 = "0.22.1"
 chrono = { version = "0.4.23", features = ["serde"] }
 clap = { version = "4.0.32", features = ["derive"] }
 config = { version = "0.13.3", features = ["toml"] }
+ctrlc = { version = "3.5.3", features = ["termination"] }
 directories = "4.0.1"
 env_logger = "0.10.0"
 log = "0.4.17"

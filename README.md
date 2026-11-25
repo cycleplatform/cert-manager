@@ -65,6 +65,12 @@ The process will sleep in the background, until 14 days before the certificate e
 
 If the bot fails to fetch the certificate for any reason, it will wait 3 hours and make the request again, indefinitely. Verify that your setup is correct before running this process in the background.
 
+Files are replaced atomically (written to a temporary file, then renamed into place), so other processes never read a partially written certificate. Any permissions you set on existing files are kept.
+
+The `exec` command and webhooks only run when a new certificate has been written. If one of them fails (including the `exec` command exiting with a non-zero status), the bot retries from the step that failed 3 hours later, without re-running the steps that already succeeded.
+
+Each process manages a single certificate. To manage several, run one instance per domain.
+
 ## Configuration
 
 While all configuration options can be set via command line, it may be preferrable to use a config file. By default, Cycle Certificate Manager loads a `config.toml` from the current working directory.
